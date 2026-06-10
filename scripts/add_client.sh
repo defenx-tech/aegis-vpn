@@ -32,14 +32,19 @@ fi
 
 require_wg_running
 
+# Sync the key from file to running interface (prevents SaveConfig drift)
+if [[ -f "${WG_DIR}/privatekey" ]]; then
+    wg set "${WG_INTERFACE}" private-key "${WG_DIR}/privatekey" 2>/dev/null || true
+fi
+
 # ── DNS selection ─────────────────────────────────────────
 select_dns() {
-    echo ""
-    print_info "Select DNS resolver:"
-    echo "   1) Cloudflare   1.1.1.1, 1.0.0.1"
-    echo "   2) Google       8.8.8.8, 8.8.4.4"
-    echo "   3) Quad9        9.9.9.9, 149.112.112.112"
-    echo "   4) Custom"
+    echo "" >&2
+    print_info "Select DNS resolver:" >&2
+    echo "   1) Cloudflare   1.1.1.1, 1.0.0.1" >&2
+    echo "   2) Google       8.8.8.8, 8.8.4.4" >&2
+    echo "   3) Quad9        9.9.9.9, 149.112.112.112" >&2
+    echo "   4) Custom" >&2
     read -rp "Choice [1]: " dns_choice
     case "${dns_choice:-1}" in
         1) echo "1.1.1.1, 1.0.0.1" ;;
@@ -55,10 +60,10 @@ select_dns() {
 
 # ── Tunnel mode selection ─────────────────────────────────
 select_tunnel_mode() {
-    echo ""
-    print_info "Select tunnel mode:"
-    echo "   1) Full tunnel  — all traffic routed through VPN  (0.0.0.0/0, ::/0)"
-    echo "   2) VPN only     — only VPN subnet traffic         (${VPN_SUBNET_CIDR})"
+    echo "" >&2
+    print_info "Select tunnel mode:" >&2
+    echo "   1) Full tunnel  — all traffic routed through VPN  (0.0.0.0/0, ::/0)" >&2
+    echo "   2) VPN only     — only VPN subnet traffic         (${VPN_SUBNET_CIDR})" >&2
     read -rp "Choice [1]: " mode_choice
     case "${mode_choice:-1}" in
         1) echo "0.0.0.0/0, ::/0" ;;
@@ -78,11 +83,16 @@ if [[ ! -f "${WG_DIR}/publickey" ]]; then
 fi
 SERVER_PUBLIC_KEY=$(< "${WG_DIR}/publickey")
 
-print_info "Detecting server public IP..."
-SERVER_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
-if [[ -z "$SERVER_IP" ]]; then
-    print_warn "Could not auto-detect public IP. Please enter it manually:"
-    read -rp "Server public IP: " SERVER_IP
+if [[ -f "${WG_DIR}/endpoint" ]]; then
+    SERVER_IP=$(< "${WG_DIR}/endpoint")
+    print_info "Using saved endpoint: ${SERVER_IP}"
+else
+    print_info "Detecting server public IP..."
+    SERVER_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
+    if [[ -z "$SERVER_IP" ]]; then
+        print_warn "Could not auto-detect public IP. Please enter it manually:"
+        read -rp "Server public IP: " SERVER_IP
+    fi
 fi
 
 # ── Allocate unique client IPs (race-safe) ───────────────
@@ -113,6 +123,7 @@ Endpoint = ${SERVER_IP}:${WG_PORT}
 AllowedIPs = ${CLIENT_ALLOWED_IPS}
 PersistentKeepalive = 25
 EOF
+sed -i 's/\r$//' "$CLIENT_CONF"
 
 chmod 600 "$CLIENT_CONF"
 
@@ -125,6 +136,7 @@ cat >> "${WG_DIR}/${WG_INTERFACE}.conf" <<EOF
 PublicKey = ${CLIENT_PUBLIC_KEY}
 AllowedIPs = ${CLIENT_IPv4}/32, ${CLIENT_IPv6}/128
 EOF
+sed -i 's/\r$//' "${WG_DIR}/${WG_INTERFACE}.conf"
 
 wg set "$WG_INTERFACE" peer "$CLIENT_PUBLIC_KEY" \
     allowed-ips "${CLIENT_IPv4}/32,${CLIENT_IPv6}/128"
