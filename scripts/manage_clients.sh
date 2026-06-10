@@ -74,6 +74,7 @@ remove_client() {
     log_connection "$CLIENT_NAME" "${CLIENT_IPv4:-N/A}" "disconnected"
     log_audit "Client removed: ${CLIENT_NAME}"
     print_ok "Client '${CLIENT_NAME}' removed successfully."
+    send_telegram_alert "Aegis-VPN: client ${CLIENT_NAME} removed at $(date '+%Y-%m-%d %H:%M:%S')"
 }
 
 # ── List clients ──────────────────────────────────────────
