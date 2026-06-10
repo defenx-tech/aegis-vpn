@@ -34,12 +34,12 @@ require_wg_running
 
 # ── DNS selection ─────────────────────────────────────────
 select_dns() {
-    echo ""
-    print_info "Select DNS resolver:"
-    echo "   1) Cloudflare   1.1.1.1, 1.0.0.1"
-    echo "   2) Google       8.8.8.8, 8.8.4.4"
-    echo "   3) Quad9        9.9.9.9, 149.112.112.112"
-    echo "   4) Custom"
+    echo "" >&2
+    print_info "Select DNS resolver:" >&2
+    echo "   1) Cloudflare   1.1.1.1, 1.0.0.1" >&2
+    echo "   2) Google       8.8.8.8, 8.8.4.4" >&2
+    echo "   3) Quad9        9.9.9.9, 149.112.112.112" >&2
+    echo "   4) Custom" >&2
     read -rp "Choice [1]: " dns_choice
     case "${dns_choice:-1}" in
         1) echo "1.1.1.1, 1.0.0.1" ;;
@@ -55,10 +55,10 @@ select_dns() {
 
 # ── Tunnel mode selection ─────────────────────────────────
 select_tunnel_mode() {
-    echo ""
-    print_info "Select tunnel mode:"
-    echo "   1) Full tunnel  — all traffic routed through VPN  (0.0.0.0/0, ::/0)"
-    echo "   2) VPN only     — only VPN subnet traffic         (${VPN_SUBNET_CIDR})"
+    echo "" >&2
+    print_info "Select tunnel mode:" >&2
+    echo "   1) Full tunnel  — all traffic routed through VPN  (0.0.0.0/0, ::/0)" >&2
+    echo "   2) VPN only     — only VPN subnet traffic         (${VPN_SUBNET_CIDR})" >&2
     read -rp "Choice [1]: " mode_choice
     case "${mode_choice:-1}" in
         1) echo "0.0.0.0/0, ::/0" ;;
