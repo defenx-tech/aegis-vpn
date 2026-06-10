@@ -86,14 +86,20 @@ if [[ ! -f "$SYSCTL_FILE" ]]; then
     touch "$SYSCTL_FILE"
 fi
 
-# Generate server keys
-echo "[*] Generating server keys..."
+# Generate server keys (skip if already exist)
 mkdir -p "$WG_DIR"
 cd "$WG_DIR" || exit 1
-wg genkey | tee privatekey | wg pubkey > publickey
-chmod 600 privatekey publickey
-SERVER_PRIVATE_KEY=$(< privatekey)
-SERVER_PUBLIC_KEY=$(< publickey)
+if [[ -f privatekey && -f publickey ]]; then
+    echo "[*] Server keys already exist — reusing."
+    SERVER_PRIVATE_KEY=$(< privatekey)
+    SERVER_PUBLIC_KEY=$(< publickey)
+else
+    echo "[*] Generating server keys..."
+    wg genkey | tee privatekey | wg pubkey > publickey
+    chmod 600 privatekey publickey
+    SERVER_PRIVATE_KEY=$(< privatekey)
+    SERVER_PUBLIC_KEY=$(< publickey)
+fi
 
 # Create wg0.conf from template (substitute placeholders)
 echo "[*] Creating ${WG_INTERFACE}.conf..."
