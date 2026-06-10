@@ -68,16 +68,15 @@ list_interfaces() {
     echo "Available network interfaces:"
     printf "  %-12s %-16s %s\n" "Interface" "IP Address" "Type"
     printf "  %s\n" "$(printf '─%.0s' {1..50})"
-    local idx=0
     while IFS= read -r line; do
         local iface ip
-        iface=$(echo "$line" | awk '{print $2}' | tr -d ':')
+        iface=$(echo "$line" | awk '{print $1}')
         ip=$(echo "$line" | awk '{print $4}' | cut -d/ -f1)
+        [[ -z "$ip" ]] && ip=$(echo "$line" | awk '{print $3}' | cut -d/ -f1)
         local type=""
         if [[ "$iface" == "$WG_IFACE" ]]; then type="(default route)"; fi
-        printf "  %-12s %-16s %s\n" "$iface" "$ip" "$type"
-        idx=$((idx + 1))
-    done < <(ip -br addr show 2>/dev/null | grep -v '^lo ')
+        printf "  %-12s %-16s %s\n" "$iface" "${ip:-—}" "$type"
+    done < <(ip -o addr show 2>/dev/null | awk '{print $2, $4}' | tr -d ':' | sort -u)
     echo ""
 }
 
@@ -98,7 +97,7 @@ if [[ -z "$WG_IFACE" ]] || [[ "$AUTO_MODE" != true && -z "$CUSTOM_IFACE" ]]; the
     if [[ "$AUTO_MODE" == true ]]; then
         echo "[!] Could not auto-detect network interface. Use --interface <name>."
         echo "    Available interfaces:"
-        ip -br addr show 2>/dev/null | grep -v '^lo ' | awk '{print "    " $2}'
+        ip -o addr show 2>/dev/null | awk '{print $2}' | tr -d ':' | sort -u | grep -v '^lo' | awk '{print "    " $1}'
         exit 1
     fi
     list_interfaces
