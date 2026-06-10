@@ -159,7 +159,6 @@ cat > "${WG_INTERFACE}.conf" <<EOF
 Address = 10.10.0.1/24, fd86:ea04:1115::1/64
 ListenPort = ${WG_PORT}
 PrivateKey = ${SERVER_PRIVATE_KEY}
-SaveConfig = true
 PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT; iptables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WG_IFACE} -j MASQUERADE; ip6tables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT; ip6tables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT; iptables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WG_IFACE} -j MASQUERADE; ip6tables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT; ip6tables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT
 EOF
@@ -170,6 +169,9 @@ chmod 600 "${WG_INTERFACE}.conf"
 echo "[*] Starting WireGuard..."
 systemctl enable "wg-quick@${WG_INTERFACE}"
 systemctl start "wg-quick@${WG_INTERFACE}"
+
+# Sync the key from the file to the running interface (fixes SaveConfig drift)
+wg set "${WG_INTERFACE}" private-key "${WG_DIR}/privatekey"
 
 # Firewall
 echo "[*] Applying firewall rules..."

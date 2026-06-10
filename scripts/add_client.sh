@@ -32,6 +32,11 @@ fi
 
 require_wg_running
 
+# Sync the key from file to running interface (prevents SaveConfig drift)
+if [[ -f "${WG_DIR}/privatekey" ]]; then
+    wg set "${WG_INTERFACE}" private-key "${WG_DIR}/privatekey" 2>/dev/null || true
+fi
+
 # ── DNS selection ─────────────────────────────────────────
 select_dns() {
     echo "" >&2
