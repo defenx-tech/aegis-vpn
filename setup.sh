@@ -85,7 +85,7 @@ echo "net.ipv6.conf.all.forwarding=1" >> "$SYSCTL_FILE"
 # Generate server keys
 echo "[*] Generating server keys..."
 mkdir -p "$WG_DIR"
-cd "$WG_DIR"
+cd "$WG_DIR" || exit 1
 wg genkey | tee privatekey | wg pubkey > publickey
 chmod 600 privatekey publickey
 SERVER_PRIVATE_KEY=$(< privatekey)
