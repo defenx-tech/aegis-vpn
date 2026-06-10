@@ -80,7 +80,7 @@ status_cmd() {
     echo "  Up since  : ${start_ts}"
 
     local peer_count=0
-    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l || echo 0)
+    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l)
     echo "  Peers     : ${peer_count}"
     echo ""
 
@@ -293,7 +293,7 @@ health_cmd() {
     echo "  Public IP  : ${public_ip}"
 
     local peer_count=0
-    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l || echo 0)
+    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l)
     echo "  Peers      : ${peer_count}"
     echo ""
 
