@@ -70,6 +70,7 @@ Endpoint = ${SERVER_ENDPOINT}
 AllowedIPs = ${CLIENT_ALLOWED}
 PersistentKeepalive = ${CLIENT_KA:-25}
 EOF
+sed -i 's/\r$//' "$CLIENT_CONF"
 chmod 600 "$CLIENT_CONF"
 
 # ── Extract IPs for peer re-registration ─────────────────
@@ -89,6 +90,7 @@ cat >> "${WG_DIR}/${WG_INTERFACE}.conf" <<EOF
 PublicKey = ${NEW_PUBLIC}
 AllowedIPs = ${SERVER_PEER_IPS}
 EOF
+sed -i 's/\r$//' "${WG_DIR}/${WG_INTERFACE}.conf"
 
 # ── Add new peer to live WireGuard ────────────────────────
 wg set "$WG_INTERFACE" peer "$NEW_PUBLIC" allowed-ips "${IPv4_CIDR}${IPv6_CIDR:+,${IPv6_CIDR}}"
