@@ -113,6 +113,7 @@ Endpoint = ${SERVER_IP}:${WG_PORT}
 AllowedIPs = ${CLIENT_ALLOWED_IPS}
 PersistentKeepalive = 25
 EOF
+sed -i 's/\r$//' "$CLIENT_CONF"
 
 chmod 600 "$CLIENT_CONF"
 
@@ -125,6 +126,7 @@ cat >> "${WG_DIR}/${WG_INTERFACE}.conf" <<EOF
 PublicKey = ${CLIENT_PUBLIC_KEY}
 AllowedIPs = ${CLIENT_IPv4}/32, ${CLIENT_IPv6}/128
 EOF
+sed -i 's/\r$//' "${WG_DIR}/${WG_INTERFACE}.conf"
 
 wg set "$WG_INTERFACE" peer "$CLIENT_PUBLIC_KEY" \
     allowed-ips "${CLIENT_IPv4}/32,${CLIENT_IPv6}/128"

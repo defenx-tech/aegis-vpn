@@ -49,11 +49,6 @@ ALLOW_PING=true
 AUTO_MODE=false
 [[ "${1:-}" == "--auto" ]] && AUTO_MODE=true
 
-# Detect auto mode
-if [[ "${1:-}" == "--auto" ]]; then
-    AUTO_MODE=true
-fi
-
 # Auto-detect outgoing network interface (replaces hardcoded enX0)
 WG_IFACE=$(ip route 2>/dev/null | awk '/^default/ {print $5; exit}')
 if [[ -z "$WG_IFACE" ]]; then
@@ -111,6 +106,7 @@ SaveConfig = true
 PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT; iptables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WG_IFACE} -j MASQUERADE; ip6tables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT; ip6tables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT; iptables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WG_IFACE} -j MASQUERADE; ip6tables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT; ip6tables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT
 EOF
+sed -i 's/\r$//' "${WG_INTERFACE}.conf"
 chmod 600 "${WG_INTERFACE}.conf"
 
 # Start & Enable WireGuard
