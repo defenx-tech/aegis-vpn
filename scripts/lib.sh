@@ -41,6 +41,36 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+# Telegram (optional — set in /etc/aegis-vpn/aegis.conf)
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
+
+# ── Load optional config file ─────────────────────────────
+load_config() {
+    local conf_path="/etc/aegis-vpn/aegis.conf"
+    if [[ -f "$conf_path" ]]; then
+        # shellcheck source=/dev/null
+        source "$conf_path"
+    fi
+}
+
+# ── Send Telegram alert (optional) ────────────────────────
+# Usage: send_telegram_alert "message text"
+send_telegram_alert() {
+    local msg="$1"
+    if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+        return
+    fi
+    curl -s --max-time 5 -o /dev/null \
+        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${msg}" \
+        2>/dev/null || true
+}
+
+# Load config early so TELEGRAM_* vars are available
+load_config
+
 # Ensure runtime directories exist
 mkdir -p "$CLIENTS_DIR" "$LOG_DIR" "$VAR_DIR"
 chmod 700 "$CLIENTS_DIR" "$LOG_DIR"

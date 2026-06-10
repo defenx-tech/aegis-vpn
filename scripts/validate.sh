@@ -48,7 +48,7 @@ validate_config() {
         done < <(awk '/^\[Peer\]/{p=1} p && /^PublicKey/{print $3; p=0}' "$conf")
         if (( bad_keys == 0 )); then
             local peer_count
-            peer_count=$(grep -c '^\[Peer\]' "$conf" 2>/dev/null || echo 0)
+            peer_count=$(grep -c '^\[Peer\]' "$conf" 2>/dev/null) || peer_count=0
             print_ok "All ${peer_count} peer PublicKey(s) valid"
         fi
 

@@ -80,7 +80,7 @@ status_cmd() {
     echo "  Up since  : ${start_ts}"
 
     local peer_count=0
-    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l || echo 0)
+    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l)
     echo "  Peers     : ${peer_count}"
     echo ""
 
@@ -268,6 +268,81 @@ check_cmd() {
     read -rp "[*] Press Enter to continue..."
 }
 
+# ── Health command ────────────────────────────────────────
+health_cmd() {
+    echo -e "${BOLD}Aegis-VPN v${AEGIS_VERSION} — Health Check${RESET}"
+    echo "──────────────────────────────────────────────────"
+
+    local service_up=false
+    if systemctl is-active --quiet "wg-quick@${WG_INTERFACE}"; then
+        echo -e "  Service    : ${GREEN}active${RESET}"
+        service_up=true
+    else
+        echo -e "  Service    : ${RED}inactive${RESET}"
+        echo ""
+        return
+    fi
+
+    local uptime_str
+    uptime_str=$(systemctl show "wg-quick@${WG_INTERFACE}" \
+                 --property=ActiveEnterTimestamp --value 2>/dev/null || echo "unknown")
+    echo "  Up since   : ${uptime_str}"
+
+    local public_ip
+    public_ip=$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null || echo "unreachable")
+    echo "  Public IP  : ${public_ip}"
+
+    local peer_count=0
+    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l)
+    echo "  Peers      : ${peer_count}"
+    echo ""
+
+    if (( peer_count > 0 )); then
+        printf "  %-20s %-20s %-12s %-12s\n" "Name" "Last Handshake" "RX" "TX"
+        printf "  %s\n" "$(printf '─%.0s' {1..68})"
+
+        local now
+        now=$(date +%s)
+        while IFS=$'\t ' read -r pubkey tx rx; do
+            local cname="unknown"
+            for conf in "${CLIENTS_DIR}"/*.conf; do
+                [[ -f "$conf" ]] || continue
+                local pk
+                pk=$(awk '/^PrivateKey[[:space:]]*=/{print $3}' "$conf" \
+                     | wg pubkey 2>/dev/null || true)
+                if [[ "$pk" == "$pubkey" ]]; then
+                    cname=$(basename "$conf" .conf)
+                    break
+                fi
+            done
+
+            local hs_epoch hs_str color
+            hs_epoch=$(wg show "$WG_INTERFACE" latest-handshakes 2>/dev/null \
+                       | awk -v pk="$pubkey" '$1==pk{print $2}')
+
+            if [[ -n "$hs_epoch" && "$hs_epoch" != "0" ]]; then
+                local delta=$(( now - hs_epoch ))
+                hs_str=$(date -d "@${hs_epoch}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "unknown")
+                if (( delta < 300 )); then
+                    color="${GREEN}"
+                else
+                    color="${YELLOW}"
+                fi
+            else
+                hs_str="never"
+                color="${YELLOW}"
+            fi
+
+            local tx_h rx_h
+            tx_h=$(numfmt --to=iec "${tx:-0}" 2>/dev/null || echo "${tx:-0}")
+            rx_h=$(numfmt --to=iec "${rx:-0}" 2>/dev/null || echo "${rx:-0}")
+
+            echo -e "  ${color}$(printf '%-20s' "$cname")${RESET} ${color}$(printf '%-20s' "$hs_str")${RESET} ${color}$(printf '%-12s' "$rx_h")${RESET} ${color}$(printf '%-12s' "$tx_h")${RESET}"
+        done < <(wg show "$WG_INTERFACE" transfer 2>/dev/null)
+    fi
+    echo ""
+}
+
 # ── Interactive menu ──────────────────────────────────────
 menu() {
     while true; do
@@ -329,6 +404,7 @@ main() {
         backup)        backup_cmd ;;
         restore)       shift; restore_cmd "${1:-}" ;;
         check)         source "$SCRIPTS_DIR/validate.sh"; validate_config ;;
+        health)        health_cmd ;;
         version)       echo "Aegis-VPN v${AEGIS_VERSION}" ;;
         --help|-h|help)
             cat <<'USAGE'
@@ -348,6 +424,7 @@ Usage:
   aegis-vpn backup                   Create tarball backup of all configs
   aegis-vpn restore <file>           Restore from a backup tarball
   aegis-vpn check                    Validate wg0.conf integrity
+  aegis-vpn health                   Show service health and peer details
   aegis-vpn dashboard [--privacy]    Live peer dashboard (refreshes every 5s)
   aegis-vpn logs [--errors|--audit] [--privacy]
                                      Stream logs (--privacy masks IPs)
