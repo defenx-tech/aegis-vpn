@@ -1,12 +1,14 @@
-# WireGuard Base Server Configuration Template
+# Aegis-VPN v3.0 — WireGuard Server Configuration Template
+# This file is a template. setup.sh substitutes the placeholders
+# below before writing the live config to /etc/wireguard/wg0.conf.
+# Do not edit the deployed /etc/wireguard/wg0.conf manually.
 
 [Interface]
-# Replace with server private key before deployment
 PrivateKey = SERVER_PRIVATE_KEY
-Address = 10.10.0.1/24
+Address = 10.10.0.1/24, fd86:ea04:1115::1/64
 ListenPort = 51820
 SaveConfig = true
 
-# NAT & forwarding
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+# NAT & forwarding — NETWORK_IFACE is replaced by setup.sh with the auto-detected interface
+PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o NETWORK_IFACE -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT; ip6tables -A FORWARD -o wg0 -j ACCEPT
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o NETWORK_IFACE -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT; ip6tables -D FORWARD -o wg0 -j ACCEPT

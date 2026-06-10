@@ -1,58 +1,73 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN Cleanup Script v1.2
+# Aegis-VPN v3.0 Cleanup Script
 # Author: Rabindra
 # Description: Completely removes Aegis-VPN setup, configs,
-#              logs, firewall rules, and WireGuard for all users.
+#              logs, firewall rules, and optionally WireGuard.
 # Usage: sudo ./cleanup.sh
 #===========================================================
 
-set -e
+set -euo pipefail
 
-echo "[*] WARNING: This will remove all Aegis-VPN files and configurations."
-read -p "Do you really want to continue? (y/N): " confirm
-if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib.sh"
+
+echo -e "${RED}[!] WARNING:${RESET} This will remove ALL Aegis-VPN files and configurations."
+read -rp "Do you really want to continue? [y/N]: " confirm
+if [[ "${confirm,,}" != "y" ]]; then
     echo "[*] Cleanup aborted."
     exit 0
 fi
 
 # Stop and disable WireGuard
 echo "[*] Stopping and disabling WireGuard..."
-systemctl stop wg-quick@wg0 2>/dev/null || true
-systemctl disable wg-quick@wg0 2>/dev/null || true
+systemctl stop "wg-quick@${WG_INTERFACE}" 2>/dev/null || true
+systemctl disable "wg-quick@${WG_INTERFACE}" 2>/dev/null || true
 systemctl daemon-reload
 
-# Remove Aegis-VPN directories
+# Remove Aegis-VPN directories and files
 echo "[*] Removing Aegis-VPN files..."
 PROJECT_DIRS=(
     "/etc/wireguard"
-    "/home/*/aegis-vpn/clients"
-    "/home/*/aegis-vpn/diagrams"
-    "/home/*/aegis-vpn/docs"
-    "/home/*/aegis-vpn/scripts"
-    "/home/*/aegis-vpn/bin"
-    "/home/*/aegis-vpn/var"
-    "/home/*/aegis-vpn/setup.sh"
-    "/home/*/aegis-vpn/LICENSE"
+    "${BASE_DIR}/clients"
+    "${BASE_DIR}/diagrams"
+    "${BASE_DIR}/docs"
+    "${BASE_DIR}/scripts"
+    "${BASE_DIR}/bin"
+    "${BASE_DIR}/var"
+    "${BASE_DIR}/setup.sh"
+    "${BASE_DIR}/LICENSE"
 )
 
-for dir in "${PROJECT_DIRS[@]}"; do
-    rm -rf $dir 2>/dev/null || true
+for entry in "${PROJECT_DIRS[@]}"; do
+    if [[ -e "$entry" ]]; then
+        rm -rf "$entry"
+        echo "    Removed: ${entry}"
+    fi
+done
+
+# Remove any backup archives created by aegis-vpn backup
+for archive in "${BASE_DIR}"/aegis-backup-*.tar.gz; do
+    if [[ -f "$archive" ]]; then
+        rm -f "$archive"
+        echo "    Removed: ${archive}"
+    fi
 done
 
 # Remove firewall rules
 echo "[*] Removing firewall rules..."
-ufw delete allow 51820/udp 2>/dev/null || true
+ufw delete allow "${WG_PORT}/udp" 2>/dev/null || true
 ufw reload 2>/dev/null || true
-iptables -F || true
-ip6tables -F || true
+iptables -F 2>/dev/null || true
+ip6tables -F 2>/dev/null || true
 
 # Optional: Remove WireGuard & dependencies
-read -p "Do you want to remove WireGuard and dependencies? (y/N): " dep_confirm
-if [[ "$dep_confirm" == "y" || "$dep_confirm" == "Y" ]]; then
+read -rp "Remove WireGuard and dependencies (wireguard, qrencode, ufw)? [y/N]: " dep_confirm
+if [[ "${dep_confirm,,}" == "y" ]]; then
     echo "[*] Removing WireGuard and dependencies..."
-    apt-get remove --purge wireguard wireguard-tools qrencode ufw -y || true
+    apt-get remove --purge -y wireguard wireguard-tools qrencode ufw 2>/dev/null || true
     apt-get autoremove -y || true
 fi
 
-echo "[*] Cleanup complete! All Aegis-VPN files and settings have been removed."
+echo ""
+echo "[*] Cleanup complete — all Aegis-VPN files and settings have been removed."

@@ -1,155 +1,172 @@
 # Contributing to Aegis-VPN
 
-Thank you for your interest in contributing to **Aegis-VPN**!  
-By contributing, you help make this VPN project more secure, reliable, and user-friendly.
-
-This guide outlines how to contribute effectively, including reporting issues, submitting pull requests, and following coding standards.
+Thank you for your interest in contributing to Aegis-VPN. Contributions of all kinds are welcome — bug fixes, new features, documentation improvements, and security reviews.
 
 ---
 
 ## Table of Contents
 
-- [Code of Conduct](#code-of-conduct)  
-- [How to Contribute](#how-to-contribute)  
-  - [Reporting Issues](#reporting-issues)  
-  - [Suggesting Features](#suggesting-features)  
-  - [Submitting Pull Requests](#submitting-pull-requests)  
-- [Development Setup](#development-setup)  
-- [Coding Standards](#coding-standards)  
-- [Testing Your Changes](#testing-your-changes)  
-- [License](#license)  
+- [Reporting Issues](#reporting-issues)
+- [Pull Request Workflow](#pull-request-workflow)
+- [Local Development](#local-development)
+- [Testing on VPS](#testing-on-vps)
+- [Testing with QEMU](#testing-with-qemu)
+- [ShellCheck Usage](#shellcheck-usage)
+- [Good First Issues](#good-first-issues)
 
 ---
 
-## Code of Conduct
+## Reporting Issues
 
-Please follow the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/).  
-All contributors are expected to be respectful, constructive, and professional.
+If you find a bug or unexpected behaviour:
 
----
-
-## How to Contribute
-
-### Reporting Issues
-
-If you find a bug, vulnerability, or unexpected behavior:
-
-1. Check if the issue already exists in [Issues](https://github.com/rabindra789/aegis-vpn/issues).  
-2. Open a new issue with the following information:
-   - **Title:** Short descriptive name of the problem.
-   - **Description:** Clear explanation of the issue.
-   - **Steps to Reproduce:** Include commands, scripts, or configuration snippets.
-   - **Expected vs Actual Behavior**
-   - **Environment Details:** OS, WireGuard version, server type, etc.
-3. Attach logs, screenshots, or diagrams if relevant.
-
----
-
-### Suggesting Features
-
-To propose a new feature or improvement:
-
-1. Check if a similar feature request exists.  
+1. Search [existing issues](https://github.com/defenx-tech/aegis-vpn/issues) first.
 2. Open a new issue with:
-   - **Feature Description:** What it does and why it is useful.
-   - **Use Cases:** Example scenarios where this feature helps.
-   - **Optional:** Draft of implementation idea or diagram.
+   - **Title** — short, descriptive
+   - **Description** — what happened vs. what you expected
+   - **Steps to reproduce** — commands, scripts, config snippets
+   - **Environment** — OS, WireGuard version, server type
+3. Attach logs (`var/log/aegis-vpn/`) or `aegis-vpn check` output if relevant.
+
+For security vulnerabilities, please open a private advisory rather than a public issue.
 
 ---
 
-### Submitting Pull Requests
+## Pull Request Workflow
 
-1. Fork the repository.  
-2. Clone your fork locally:
+1. Fork the repository and clone your fork:
    ```bash
    git clone https://github.com/<your-username>/aegis-vpn.git
-    ```
-
-3. Create a new branch:
-
-   ```bash
-   git checkout -b feature/awesome-feature
+   cd aegis-vpn
    ```
-4. Make your changes with clear commit messages:
 
+2. Create a feature branch:
    ```bash
-   git commit -m "Add feature X to improve VPN client setup"
+   git checkout -b feature/your-feature-name
    ```
-5. Push your branch:
 
+3. Make your changes. See [ShellCheck Usage](#shellcheck-usage) to ensure code quality.
+
+4. Commit with a clear message:
    ```bash
-   git push origin feature/awesome-feature
+   git commit -m "feat: add X to improve client onboarding"
    ```
-6. Open a Pull Request against the `main` branch with:
 
-   * Clear description of changes
-   * Reference related issues (e.g., `Fixes #12`)
-   * Screenshots, if UI or CLI changes are involved
-7. Wait for review, respond to comments, and iterate as needed.
+5. Push and open a PR against `main` on `defenx-tech/aegis-vpn`:
+   - Describe what the PR does and why
+   - Reference any related issues (e.g. `Closes #12`)
+   - Include before/after output for CLI changes
 
-> ⚠️ Do not push directly to `main`.
+> Do not push directly to `main`.
 
 ---
 
-## Development Setup
+## Local Development
 
-To work locally:
+```bash
+# Install dependencies
+sudo apt update
+sudo apt install wireguard qrencode curl figlet bash coreutils shellcheck
 
-1. Install **WireGuard** and required packages:
+# Clone and set up
+git clone https://github.com/<your-username>/aegis-vpn.git
+cd aegis-vpn
+sudo ./setup.sh --auto   # sets up WireGuard on the local machine
 
-   ```bash
-   sudo apt update
-   sudo apt install wireguard qrencode bash
-   ```
+# Add a test client
+sudo ./bin/aegis-vpn add
+
+# Verify the CLI
+sudo ./bin/aegis-vpn --help
+sudo ./bin/aegis-vpn version
+sudo ./bin/aegis-vpn check
+sudo ./bin/aegis-vpn health
+```
+
+---
+
+## Testing on VPS
+
+1. Provision a fresh VPS (Ubuntu 22.04+ / Debian 12+).
 2. Clone the repository:
-
    ```bash
-   git clone https://github.com/rabindra789/aegis-vpn.git
+   git clone https://github.com/<your-username>/aegis-vpn.git
    cd aegis-vpn
    ```
-3. Use the **setup script** for a test environment:
-
+3. Run the automated setup:
    ```bash
    sudo ./setup.sh --auto
    ```
-4. Add a test client:
-
+4. Test the full workflow:
    ```bash
-   sudo ./manage_client.sh add test-client
+   sudo ./bin/aegis-vpn add
+   sudo ./bin/aegis-vpn list
+   sudo ./bin/aegis-vpn health
+   sudo ./bin/aegis-vpn check
+   sudo ./bin/aegis-vpn backup
+   sudo ./bin/aegis-vpn rotate <client>
+   sudo ./bin/aegis-vpn rotate-server
+   sudo ./bin/aegis-vpn remove
+   ```
+5. Verify cleanup:
+   ```bash
+   sudo ./cleanup.sh
    ```
 
 ---
 
-## Coding Standards
+## Testing with QEMU
 
-* Use **bash scripting best practices**:
+For local VM-based testing:
 
-  * Use `#!/usr/bin/env bash` shebang
-  * Quote variables: `"$VAR"`
-  * Use functions for repeated logic
-  * Handle errors gracefully with `set -e` or custom error checks
-* Comments are **mandatory** for complex sections.
-* Follow **naming conventions**:
+```bash
+# Install QEMU
+sudo apt install qemu-system-x86 qemu-utils
 
-  * Scripts: `snake_case.sh`
-  * Variables: `UPPERCASE` for constants, `lowercase` for locals
+# Create a disk image and install your preferred distro
+qemu-img create -f qcow2 test-vm.qcow2 20G
 
----
+# Boot the VM (use your preferred ISO)
+qemu-system-x86_64 -enable-kvm -m 2048 -hda test-vm.qcow2 -cdrom ubuntu.iso
 
-## Testing Your Changes
-
-Before submitting PRs:
-
-1. Test on a **fresh VPS instance**.
-2. Ensure scripts:
-
-   * Successfully run end-to-end
-   * Generate client configs correctly
-   * Apply firewall rules without errors
-3. Verify **WireGuard connectivity** and packet routing.
+# Inside the VM, install git and clone the repo, then run the
+# same test procedure as the VPS section above.
+```
 
 ---
 
-## License
+## ShellCheck Usage
 
-By contributing, you agree that your contributions will be licensed under the **MIT License**.
+All shell scripts must pass ShellCheck before merging.
+
+```bash
+# Run ShellCheck on all scripts
+shellcheck **/*.sh
+
+# Run on a specific script
+shellcheck bin/aegis-vpn
+shellcheck scripts/lib.sh
+
+# Check syntax only (quick check)
+bash -n scripts/your_script.sh
+```
+
+If ShellCheck is not installed:
+
+```bash
+sudo apt install shellcheck
+```
+
+---
+
+## Good First Issues
+
+If you are new to the project, consider tackling one of these:
+
+- **Multiple WireGuard interfaces** — Support running multiple WireGuard interfaces (e.g. `wg0`, `wg1`) with separate VPN subnets and independent client management. This requires updating `lib.sh` variables, the CLI dispatcher, and all scripts that reference `WG_INTERFACE`.
+
+- **IPv6-only mode** — Allow deploying Aegis-VPN on IPv6-only VPS instances. Currently the setup and client generation assume dual-stack or IPv4. Key areas: server detection, endpoint configuration, and firewall rules.
+
+- **systemd watchdog integration** — Add watchdog support to the `wg-quick@` service or a companion service to automatically restart WireGuard if the interface goes down unexpectedly. This involves creating a drop-in unit file and optional alerting.
+
+- **Logging improvements** — Enhance the logging system with structured JSON logs, log levels (info/warn/error), and optional remote log shipping via syslog or a lightweight forwarder.

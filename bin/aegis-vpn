@@ -1,69 +1,56 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN All-in-One CLI v2.1
+# Aegis-VPN CLI v3.0.0
 # Author: Rabindra
-# Description: Single entrypoint with menu-driven interface
+# Description: Single entrypoint with menu-driven interface,
+#              client management, monitoring, and new v3.0
+#              features: status, rotate, backup, restore, check.
 #===========================================================
 
-set -e
+set -euo pipefail
 
-# Paths
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPTS_DIR="$BASE_DIR/scripts"
-CLIENTS_DIR="$BASE_DIR/clients"
-LOG_DIR="$BASE_DIR/var/log/aegis-vpn"
-CONNECTION_LOG="$LOG_DIR/connections.log"
-ERROR_LOG="$LOG_DIR/errors.log"
-AUDIT_LOG="$LOG_DIR/audit.log"
+# shellcheck source=../scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib.sh"
+# shellcheck source=../scripts/log_hooks.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/log_hooks.sh"
 
-WG_DIR="/etc/wireguard"
-WG_INTERFACE="wg0"
-
-# Ensure logs dir exists
-mkdir -p "$CLIENTS_DIR" "$LOG_DIR"
-chmod 700 "$CLIENTS_DIR" "$LOG_DIR"
-
-# Source logging hooks only (no interactive code)
-source "$SCRIPTS_DIR/log_hooks.sh"
-
-# Dependency check
+# ── Dependency check ──────────────────────────────────────
 check_deps() {
-    local missing=false
-    for cmd in wg qrencode curl figlet; do
-        if ! command -v "$cmd" &>/dev/null; then
-            echo "[*] Installing missing dependency: $cmd"
-            missing=true
-        fi
+    local -a missing=()
+    for cmd in wg qrencode curl figlet awk numfmt; do
+        command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
-
-    if $missing; then
-        sudo apt update -y
-        sudo apt install -y wireguard qrencode curl figlet
+    if (( ${#missing[@]} > 0 )); then
+        print_warn "Installing missing dependencies: ${missing[*]}"
+        apt-get update -qq
+        apt-get install -y wireguard qrencode curl figlet coreutils
     fi
 }
 
-# Privacy masking (IPv4+IPv6)
+# ── Privacy masking (IPv4 + IPv6) ────────────────────────
 mask_ip() {
-    sed -E 's/([0-9]{1,3}\.){3}[0-9]{1,3}/***.***.***.***/g; s/([0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/****:****:****:****:****:****:****:****/g'
+    sed -E \
+        's/([0-9]{1,3}\.){3}[0-9]{1,3}/***.***.***.***/g;
+         s/([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}/****:****:****:****/g'
 }
 
-# Logs command
+# ── Logs command ──────────────────────────────────────────
 logs_cmd() {
     local file="$CONNECTION_LOG"
     local privacy=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --errors) file="$ERROR_LOG" ;;
-            --audit)  file="$AUDIT_LOG" ;;
+            --errors)  file="$ERROR_LOG" ;;
+            --audit)   file="$AUDIT_LOG" ;;
             --privacy) privacy=true ;;
-            *) echo "[!] Unknown flag: $1"; exit 1 ;;
+            *) print_err "Unknown flag: $1"; exit 1 ;;
         esac
         shift
     done
 
     if [[ ! -f "$file" ]]; then
-        echo "No logs available at $file"
+        print_warn "No logs available at ${file}"
         return
     fi
 
@@ -74,10 +61,58 @@ logs_cmd() {
     fi
 }
 
-# Dashboard command
+# ── Status command ────────────────────────────────────────
+status_cmd() {
+    echo -e "${BOLD}Aegis-VPN v${AEGIS_VERSION} — Status${RESET}"
+    echo "──────────────────────────────────────────────────"
+
+    if systemctl is-active --quiet "wg-quick@${WG_INTERFACE}"; then
+        echo -e "  WireGuard : ${GREEN}running${RESET}"
+    else
+        echo -e "  WireGuard : ${RED}stopped${RESET}"
+        echo ""
+        return
+    fi
+
+    local start_ts
+    start_ts=$(systemctl show "wg-quick@${WG_INTERFACE}" \
+               --property=ActiveEnterTimestamp --value 2>/dev/null || echo "unknown")
+    echo "  Up since  : ${start_ts}"
+
+    local peer_count=0
+    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l)
+    echo "  Peers     : ${peer_count}"
+    echo ""
+
+    if (( peer_count > 0 )); then
+        printf "  %-20s %-14s %-14s\n" "Client" "Sent" "Received"
+        printf "  %s\n" "$(printf '─%.0s' {1..52})"
+
+        while IFS=$'\t ' read -r pubkey tx rx; do
+            local cname="unknown"
+            for conf in "${CLIENTS_DIR}"/*.conf; do
+                [[ -f "$conf" ]] || continue
+                local pk
+                pk=$(awk '/^PrivateKey[[:space:]]*=/{print $3}' "$conf" \
+                     | wg pubkey 2>/dev/null || true)
+                if [[ "$pk" == "$pubkey" ]]; then
+                    cname=$(basename "$conf" .conf)
+                    break
+                fi
+            done
+            local tx_h rx_h
+            tx_h=$(numfmt --to=iec "${tx:-0}" 2>/dev/null || echo "${tx:-0}")
+            rx_h=$(numfmt --to=iec "${rx:-0}" 2>/dev/null || echo "${rx:-0}")
+            printf "  %-20s %-14s %-14s\n" "$cname" "$tx_h" "$rx_h"
+        done < <(wg show "$WG_INTERFACE" transfer 2>/dev/null)
+    fi
+    echo ""
+}
+
+# ── Dashboard command ─────────────────────────────────────
 dashboard_cmd() {
     local privacy=false
-    if [[ "$1" == "--privacy" ]]; then
+    if [[ "${1:-}" == "--privacy" ]]; then
         privacy=true
     fi
 
@@ -86,100 +121,270 @@ dashboard_cmd() {
         if command -v figlet &>/dev/null; then
             figlet -c "Aegis-VPN"
         else
-            echo "┌───────── Aegis-VPN Dashboard ─────────┐"
+            echo -e "${BOLD}┌───────── Aegis-VPN v${AEGIS_VERSION} Dashboard ─────────┐${RESET}"
         fi
 
-        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
-        echo "─────────────────────────────────────────────"
-        printf "%-15s %-20s %-12s %-10s\n" "Peer" "IP" "Status" "Uptime"
-        echo "─────────────────────────────────────────────"
+        local peer_count=0
+        systemctl is-active --quiet "wg-quick@${WG_INTERFACE}" 2>/dev/null && \
+            peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l) || true
 
-        if [[ -f "$CONNECTION_LOG" ]]; then
-            while IFS='|' read -r ts peer ip event; do
-                [[ -z "$peer" ]] && continue
-                [[ "$privacy" == true ]] && ip="***.***.***.***"
+        echo "  Time   : $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "  Peers  : ${peer_count}"
+        echo "──────────────────────────────────────────────────────────────────────────────"
+        printf "%-18s %-14s %-10s %-20s %-8s %-8s\n" \
+               "Name" "IPv4" "Status" "Last Handshake" "Sent" "Recv"
+        echo "──────────────────────────────────────────────────────────────────────────────"
 
-                if [[ "$event" == "connected" ]]; then
-                    t1=$(date -d "$ts" +%s)
-                    t2=$(date +%s)
-                    diff=$((t2 - t1))
-                    h=$((diff/3600))
-                    m=$(( (diff%3600)/60 ))
-                    s=$((diff%60))
-                    uptime=$(printf "%02d:%02d:%02d" $h $m $s)
+        if systemctl is-active --quiet "wg-quick@${WG_INTERFACE}" 2>/dev/null; then
+            for conf in "${CLIENTS_DIR}"/*.conf; do
+                [[ -f "$conf" ]] || continue
+                local name ipv4 privkey pubkey
+                name=$(basename "$conf" .conf)
+                ipv4=$(awk -F'[[:space:]/,]+' '/^Address[[:space:]]*=/{print $3}' "$conf")
+                [[ "$privacy" == true ]] && ipv4="***.***.***.***"
+
+                privkey=$(awk '/^PrivateKey[[:space:]]*=/{print $3}' "$conf")
+                pubkey=$(echo "$privkey" | wg pubkey 2>/dev/null || true)
+                [[ -z "$pubkey" ]] && continue
+
+                local hs_epoch tx rx
+                hs_epoch=$(wg show "$WG_INTERFACE" latest-handshakes 2>/dev/null \
+                           | awk -v pk="$pubkey" '$1==pk{print $2}')
+                tx=$(wg show "$WG_INTERFACE" transfer 2>/dev/null \
+                     | awk -v pk="$pubkey" '$1==pk{print $2}')
+                rx=$(wg show "$WG_INTERFACE" transfer 2>/dev/null \
+                     | awk -v pk="$pubkey" '$1==pk{print $3}')
+
+                local status_str hs_str now delta
+                now=$(date +%s)
+                if [[ -n "$hs_epoch" && "$hs_epoch" != "0" ]]; then
+                    delta=$(( now - hs_epoch ))
+                    hs_str=$(date -d "@${hs_epoch}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "unknown")
+                    if (( delta < 180 )); then
+                        status_str="${GREEN}online${RESET} "
+                    else
+                        status_str="${RED}offline${RESET}"
+                    fi
                 else
-                    uptime="--:--:--"
+                    hs_str="never"
+                    status_str="${YELLOW}never${RESET}  "
                 fi
 
-                printf "%-15s %-20s %-12s %-10s\n" "$peer" "$ip" "$event" "$uptime"
-            done < <(awk '{print $1 "|" $2 "|" $3 "|" $4}' "$CONNECTION_LOG")
+                local tx_h rx_h
+                tx_h=$(numfmt --to=iec "${tx:-0}" 2>/dev/null || echo "${tx:-0}")
+                rx_h=$(numfmt --to=iec "${rx:-0}" 2>/dev/null || echo "${rx:-0}")
+
+                printf "%-18s %-14s " "$name" "$ipv4"
+                printf "${status_str} "
+                printf "%-20s %-8s %-8s\n" "$hs_str" "$tx_h" "$rx_h"
+            done
         else
-            echo "No connections logged yet."
+            echo "  WireGuard is not running."
         fi
 
-        echo "─────────────────────────────────────────────"
-        sleep 2
+        echo "──────────────────────────────────────────────────────────────────────────────"
+        echo "  Refreshing every 5s — Ctrl+C to exit"
+        sleep 5
     done
 }
 
-# Client management commands
+# ── Client management commands ────────────────────────────
 add_client_cmd() {
     "$SCRIPTS_DIR/manage_clients.sh" add
     echo
-    echo "[*] Press Enter to return to the menu..."
-    read -r
+    read -rp "[*] Press Enter to continue..."
 }
+
 remove_client_cmd() {
     "$SCRIPTS_DIR/manage_clients.sh" remove
     echo
-    echo "[*] Press Enter to return to the menu..."
-    read -r
+    read -rp "[*] Press Enter to continue..."
 }
+
 list_client_cmd() {
     "$SCRIPTS_DIR/manage_clients.sh" list
     echo
-    echo "[*] Press Enter to return to the menu..."
-    read -r
+    read -rp "[*] Press Enter to continue..."
 }
 
-# Setup command
+# ── Setup command ─────────────────────────────────────────
 setup_cmd() {
     check_deps
-    mkdir -p "$CLIENTS_DIR" "$LOG_DIR"
+    mkdir -p "$CLIENTS_DIR" "$LOG_DIR" "$VAR_DIR"
     chmod 700 "$CLIENTS_DIR" "$LOG_DIR"
-    echo "[*] Setup complete! You can now use 'aegis-vpn dashboard' etc."
+    print_ok "Setup complete! Directories ready."
+    print_info "Run 'sudo ./setup.sh' to install and configure WireGuard."
 }
 
-# Menu interface
+# ── Rotate client keys ────────────────────────────────────
+rotate_cmd() {
+    local client="${1:-}"
+    if [[ -z "$client" ]]; then
+        read -rp "Enter client name to rotate keys: " client
+    fi
+    [[ -z "$client" ]] && { print_err "Client name cannot be empty."; return 1; }
+    "$SCRIPTS_DIR/rotate_client.sh" "$client"
+    echo
+    read -rp "[*] Press Enter to continue..."
+}
+
+# ── Rotate server key ─────────────────────────────────────
+rotate_server_cmd() {
+    local flags=()
+    # Pass through --qr if called non-interactively with it
+    for arg in "$@"; do flags+=("$arg"); done
+    "$SCRIPTS_DIR/rotate_server.sh" "${flags[@]}"
+    echo
+    read -rp "[*] Press Enter to continue..."
+}
+
+# ── Backup command ────────────────────────────────────────
+backup_cmd() {
+    # shellcheck source=../scripts/backup_restore.sh
+    source "$SCRIPTS_DIR/backup_restore.sh"
+    do_backup
+    echo
+    read -rp "[*] Press Enter to continue..."
+}
+
+# ── Restore command ───────────────────────────────────────
+restore_cmd() {
+    local file="${1:-}"
+    if [[ -z "$file" ]]; then
+        print_err "Usage: aegis-vpn restore <backup-file>"
+        exit 1
+    fi
+    # shellcheck source=../scripts/backup_restore.sh
+    source "$SCRIPTS_DIR/backup_restore.sh"
+    do_restore "$file"
+}
+
+# ── Check command ─────────────────────────────────────────
+check_cmd() {
+    # shellcheck source=../scripts/validate.sh
+    source "$SCRIPTS_DIR/validate.sh"
+    validate_config
+    echo
+    read -rp "[*] Press Enter to continue..."
+}
+
+# ── Health command ────────────────────────────────────────
+health_cmd() {
+    echo -e "${BOLD}Aegis-VPN v${AEGIS_VERSION} — Health Check${RESET}"
+    echo "──────────────────────────────────────────────────"
+
+    local service_up=false
+    if systemctl is-active --quiet "wg-quick@${WG_INTERFACE}"; then
+        echo -e "  Service    : ${GREEN}active${RESET}"
+        service_up=true
+    else
+        echo -e "  Service    : ${RED}inactive${RESET}"
+        echo ""
+        return
+    fi
+
+    local uptime_str
+    uptime_str=$(systemctl show "wg-quick@${WG_INTERFACE}" \
+                 --property=ActiveEnterTimestamp --value 2>/dev/null || echo "unknown")
+    echo "  Up since   : ${uptime_str}"
+
+    local public_ip
+    public_ip=$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null || echo "unreachable")
+    echo "  Public IP  : ${public_ip}"
+
+    local peer_count=0
+    peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l)
+    echo "  Peers      : ${peer_count}"
+    echo ""
+
+    if (( peer_count > 0 )); then
+        printf "  %-20s %-20s %-12s %-12s\n" "Name" "Last Handshake" "RX" "TX"
+        printf "  %s\n" "$(printf '─%.0s' {1..68})"
+
+        local now
+        now=$(date +%s)
+        while IFS=$'\t ' read -r pubkey tx rx; do
+            local cname="unknown"
+            for conf in "${CLIENTS_DIR}"/*.conf; do
+                [[ -f "$conf" ]] || continue
+                local pk
+                pk=$(awk '/^PrivateKey[[:space:]]*=/{print $3}' "$conf" \
+                     | wg pubkey 2>/dev/null || true)
+                if [[ "$pk" == "$pubkey" ]]; then
+                    cname=$(basename "$conf" .conf)
+                    break
+                fi
+            done
+
+            local hs_epoch hs_str color
+            hs_epoch=$(wg show "$WG_INTERFACE" latest-handshakes 2>/dev/null \
+                       | awk -v pk="$pubkey" '$1==pk{print $2}')
+
+            if [[ -n "$hs_epoch" && "$hs_epoch" != "0" ]]; then
+                local delta=$(( now - hs_epoch ))
+                hs_str=$(date -d "@${hs_epoch}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "unknown")
+                if (( delta < 300 )); then
+                    color="${GREEN}"
+                else
+                    color="${YELLOW}"
+                fi
+            else
+                hs_str="never"
+                color="${YELLOW}"
+            fi
+
+            local tx_h rx_h
+            tx_h=$(numfmt --to=iec "${tx:-0}" 2>/dev/null || echo "${tx:-0}")
+            rx_h=$(numfmt --to=iec "${rx:-0}" 2>/dev/null || echo "${rx:-0}")
+
+            echo -e "  ${color}$(printf '%-20s' "$cname")${RESET} ${color}$(printf '%-20s' "$hs_str")${RESET} ${color}$(printf '%-12s' "$rx_h")${RESET} ${color}$(printf '%-12s' "$tx_h")${RESET}"
+        done < <(wg show "$WG_INTERFACE" transfer 2>/dev/null)
+    fi
+    echo ""
+}
+
+# ── Interactive menu ──────────────────────────────────────
 menu() {
     while true; do
         clear
-        echo "┌─────────────── Aegis-VPN Menu ────────────────┐"
-        echo "│ 1) Setup                                      │"
-        echo "│ 2) Add Client                                 │"
-        echo "│ 3) Remove Client                              │"
-        echo "│ 4) List Clients                               │"
-        echo "│ 5) View Logs                                  │"
-        echo "│ 6) Dashboard                                  │"
-        echo "│ 7) Exit                                       │"
-        echo "└───────────────────────────────────────────────┘"
-        echo -n "Select an option [1-7]: "
-        read -r choice
+        local peer_count=0
+        systemctl is-active --quiet "wg-quick@${WG_INTERFACE}" 2>/dev/null && \
+            peer_count=$(wg show "$WG_INTERFACE" peers 2>/dev/null | wc -l) || true
+
+        echo -e "${BOLD}┌──────────────── Aegis-VPN v${AEGIS_VERSION} ────────────────┐${RESET}"
+        printf  "│  Active peers : %-29s  │\n" "${peer_count}"
+        echo    "│                                                  │"
+        echo    "│   1) Setup          7) Status                   │"
+        echo    "│   2) Add Client     8) Rotate Client Keys       │"
+        echo    "│   3) Remove Client  9) Rotate Server Key        │"
+        echo    "│   4) List Clients  10) Backup                   │"
+        echo    "│   5) View Logs     11) Restore                  │"
+        echo    "│   6) Dashboard     12) Check Config             │"
+        echo    "│                   13) Exit                      │"
+        echo -e "${BOLD}└──────────────────────────────────────────────────┘${RESET}"
+        read -rp "Select an option [1-13]: " choice
 
         case "$choice" in
-            1) setup_cmd ;;
-            2) add_client_cmd ;;
-            3) remove_client_cmd ;;
-            4) list_client_cmd ;;
-            5) logs_cmd ;;
-            6) dashboard_cmd ;;
-            7) exit 0 ;;
-            *) echo "[!] Invalid choice. Press Enter to continue."; read ;;
+            1)  setup_cmd ;;
+            2)  add_client_cmd ;;
+            3)  remove_client_cmd ;;
+            4)  list_client_cmd ;;
+            5)  logs_cmd ;;
+            6)  dashboard_cmd ;;
+            7)  status_cmd; read -rp "[*] Press Enter to continue..." ;;
+            8)  rotate_cmd ;;
+            9)  rotate_server_cmd ;;
+            10) backup_cmd ;;
+            11) read -rp "Enter backup file path: " bfile
+                restore_cmd "$bfile" ;;
+            12) check_cmd ;;
+            13) exit 0 ;;
+            *)  print_warn "Invalid choice."; sleep 1 ;;
         esac
     done
 }
 
-# Main CLI parser
+# ── Main CLI parser ───────────────────────────────────────
 main() {
     if [[ $# -eq 0 ]]; then
         menu
@@ -187,22 +392,51 @@ main() {
     fi
 
     case "$1" in
-        setup) setup_cmd ;;
-        add) shift; add_client_cmd ;;
-        remove) shift; remove_client_cmd ;;
-        list) shift; list_client_cmd ;;
-        logs) shift; logs_cmd "$@" ;;
-        dashboard) shift; dashboard_cmd "$@" ;;
+        setup)     setup_cmd ;;
+        add)       shift; add_client_cmd ;;
+        remove)    shift; remove_client_cmd ;;
+        list)      shift; list_client_cmd ;;
+        logs)      shift; logs_cmd "$@" ;;
+        dashboard) shift; dashboard_cmd "${1:-}" ;;
+        status)    status_cmd ;;
+        rotate)        shift; rotate_cmd "${1:-}" ;;
+        rotate-server) shift; rotate_server_cmd "$@" ;;
+        backup)        backup_cmd ;;
+        restore)       shift; restore_cmd "${1:-}" ;;
+        check)         source "$SCRIPTS_DIR/validate.sh"; validate_config ;;
+        health)        health_cmd ;;
+        version)       echo "Aegis-VPN v${AEGIS_VERSION}" ;;
+        --help|-h|help)
+            cat <<'USAGE'
+
+Aegis-VPN v3.0.0
+
+Usage:
+  aegis-vpn                          Interactive menu
+  aegis-vpn setup                    Verify dependencies and prepare directories
+  aegis-vpn add                      Add a new VPN client
+  aegis-vpn remove                   Remove an existing client
+  aegis-vpn list                     List all clients with live status
+  aegis-vpn status                   Show service status and per-peer bandwidth
+  aegis-vpn rotate [<client>]        Rotate keys for a client (keeps IP/DNS)
+  aegis-vpn rotate-server [--qr]    Rotate the SERVER private key; updates all client configs
+                                     --qr also re-displays QR codes for every client
+  aegis-vpn backup                   Create tarball backup of all configs
+  aegis-vpn restore <file>           Restore from a backup tarball
+  aegis-vpn check                    Validate wg0.conf integrity
+  aegis-vpn health                   Show service health and peer details
+  aegis-vpn dashboard [--privacy]    Live peer dashboard (refreshes every 5s)
+  aegis-vpn logs [--errors|--audit] [--privacy]
+                                     Stream logs (--privacy masks IPs)
+  aegis-vpn version                  Print version string
+  aegis-vpn --help                   Show this help
+
+USAGE
+            ;;
         *)
-            echo "Aegis-VPN CLI"
-            echo "Usage:"
-            echo "  aegis-vpn              # Opens menu"
-            echo "  aegis-vpn setup        # Install deps and prepare directories"
-            echo "  aegis-vpn add          # Add a new client"
-            echo "  aegis-vpn remove       # Remove a client"
-            echo "  aegis-vpn list         # List all clients"
-            echo "  aegis-vpn logs [...]   # View logs"
-            echo "  aegis-vpn dashboard    # Open dashboard"
+            print_err "Unknown command: $1"
+            echo "  Run 'aegis-vpn --help' for usage."
+            exit 1
             ;;
     esac
 }

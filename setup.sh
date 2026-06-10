@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN Setup Script v1.3 (Security Patch - iptables)
+# Aegis-VPN v3.0 Setup Script
 # Author: Rabindra
 # Description:
 #   - WireGuard server (wg0) on 10.10.0.0/24
@@ -12,9 +12,23 @@
 #   sudo ./setup.sh [--auto]
 #===========================================================
 
+# Install figlet if missing (quietly)
+if ! command -v figlet >/dev/null 2>&1; then
+    echo "[*] Installing figlet for banner..."
+    apt-get update -qq
+    apt-get install -y figlet >/dev/null 2>&1
+fi
+
+# Display banner
+clear
+figlet -f big "AEGIS VPN"
+echo -e "\e[1;32mSecure, Fast, Modern — v3.0\e[0m"
+echo -e "\e[1;33mby Rabindra - 2026\e[0m"
+echo
+
 set -euo pipefail
 
-# --------- Config ---------
+# Variables
 WG_INTERFACE="wg0"
 WG_PORT="${WG_PORT:-51820}"
 
@@ -35,264 +49,85 @@ ALLOW_PING=true
 AUTO_MODE=false
 [[ "${1:-}" == "--auto" ]] && AUTO_MODE=true
 
-# --------- Helpers ---------
-log()  { printf '[*] %s\n' "$*"; }
-err()  { printf '[!] %s\n' "$*" >&2; }
-die()  { err "$*"; exit 1; }
+# Detect auto mode
+if [[ "${1:-}" == "--auto" ]]; then
+    AUTO_MODE=true
+fi
 
-require_root() {
-    if [[ "$(id -u)" -ne 0 ]]; then
-        die "This script must be run as root (use sudo)."
+# Auto-detect outgoing network interface (replaces hardcoded enX0)
+WG_IFACE=$(ip route 2>/dev/null | awk '/^default/ {print $5; exit}')
+if [[ -z "$WG_IFACE" ]]; then
+    echo "[!] Could not auto-detect network interface."
+    if [[ "$AUTO_MODE" == true ]]; then
+        echo "[!] --auto mode requires a default route. Aborting."
+        exit 1
     fi
-}
+    read -rp "Enter your network interface name (e.g. eth0): " WG_IFACE
+fi
+echo "[*] Using network interface: ${WG_IFACE}"
 
-maybe_install_figlet() {
-    if ! command -v figlet >/dev/null 2>&1; then
-        log "Installing figlet for banner..."
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y figlet >/dev/null 2>&1 || true
-    fi
-}
-
-banner() {
-    clear || true
-    if command -v figlet >/dev/null 2>&1; then
-        figlet -f big "AEGIS VPN"
+# Get public IP
+echo "[*] Detecting server public IP..."
+SERVER_PUBLIC_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
+if [[ -z "$SERVER_PUBLIC_IP" ]]; then
+    if [[ "$AUTO_MODE" == true ]]; then
+        echo "[!] Could not detect public IP in --auto mode. Proceeding without it."
+        SERVER_PUBLIC_IP="<your-server-ip>"
     else
-        echo "AEGIS VPN"
+        read -rp "[!] Could not detect public IP. Enter it manually: " SERVER_PUBLIC_IP
     fi
-    echo -e "\e[1;32mSecure, Fast, Modern\e[0m"
-    echo -e "\e[1;33mby Rabindra - v1.3 (iptables)\e[0m"
-    echo
-}
+fi
 
-detect_wan_interface() {
-    # Try to detect default egress interface
-    local ifc
-    ifc=$(ip route get 1.1.1.1 2>/dev/null | awk '/dev/ {for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -n1)
-    if [[ -z "$ifc" ]]; then
-        ifc=$(ip route show default 2>/dev/null | awk '/dev/ {for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -n1)
-    fi
-    if [[ -z "$ifc" ]]; then
-        err "Could not auto-detect WAN interface, falling back to eth0"
-        WAN_IF="eth0"
-    else
-        WAN_IF="$ifc"
-    fi
-    log "Using '$WAN_IF' as WAN interface."
-}
+# Install dependencies
+echo "[*] Installing dependencies..."
+apt-get update -qq
+apt-get install -y wireguard qrencode ufw curl
 
-get_public_ip() {
-    SERVER_PUBLIC_IP=$(curl -4s https://ifconfig.co || curl -4s https://api.ipify.org || echo "UNKNOWN")
-}
+# Enable IP forwarding (fix: correct sysctl.conf path)
+echo "[*] Enabling IPv4 and IPv6 forwarding..."
+SYSCTL_FILE="/etc/sysctl.conf"
+if [[ ! -f "$SYSCTL_FILE" ]]; then
+    echo "[*] /etc/sysctl.conf not found. Creating..."
+    touch "$SYSCTL_FILE"
+fi
 
-disable_ufw_if_present() {
-    if command -v ufw >/dev/null 2>&1; then
-        log "Disabling UFW (iptables-only mode)..."
-        ufw disable || true
-        systemctl disable ufw 2>/dev/null || true
-    fi
-}
+# Generate server keys
+echo "[*] Generating server keys..."
+mkdir -p "$WG_DIR"
+cd "$WG_DIR" || exit 1
+wg genkey | tee privatekey | wg pubkey > publickey
+chmod 600 privatekey publickey
+SERVER_PRIVATE_KEY=$(< privatekey)
+SERVER_PUBLIC_KEY=$(< publickey)
 
-install_packages() {
-    log "Installing dependencies..."
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        wireguard wireguard-tools qrencode \
-        iptables iptables-persistent \
-        curl >/dev/null
-}
-
-enable_ip_forwarding() {
-    log "Enabling IPv4 and IPv6 forwarding..."
-    local SYSCTL_FILE="/etc/sysctl.conf"
-
-    # Immediate effect
-    sysctl -w net.ipv4.ip_forward=1 >/dev/null
-    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-
-    # Persist across reboot
-    sed -i '/^net\.ipv4\.ip_forward/d' "$SYSCTL_FILE"
-    sed -i '/^net\.ipv6\.conf\.all\.forwarding/d' "$SYSCTL_FILE"
-    {
-        echo "net.ipv4.ip_forward=1"
-        echo "net.ipv6.conf.all.forwarding=1"
-    } >> "$SYSCTL_FILE"
-
-    sysctl -p >/dev/null
-}
-
-ensure_dirs() {
-    mkdir -p "$WG_DIR" "$CLIENTS_DIR"
-    chmod 700 "$WG_DIR"
-}
-
-generate_server_keys() {
-    log "Generating WireGuard server keys..."
-    umask 077
-    wg genkey | tee "$WG_DIR/server_private.key" | wg pubkey > "$WG_DIR/server_public.key"
-    SERVER_PRIVATE_KEY=$(<"$WG_DIR/server_private.key")
-    SERVER_PUBLIC_KEY=$(<"$WG_DIR/server_public.key")
-}
-
-write_server_config() {
-    log "Writing $WG_DIR/$WG_INTERFACE.conf ..."
-    cat > "$WG_DIR/$WG_INTERFACE.conf" <<EOF
+# Create wg0.conf from template (substitute placeholders)
+echo "[*] Creating ${WG_INTERFACE}.conf..."
+cat > "${WG_INTERFACE}.conf" <<EOF
 [Interface]
-Address = ${SERVER_V4_CIDR}, ${SERVER_V6_CIDR}
+Address = 10.10.0.1/24, fd86:ea04:1115::1/64
 ListenPort = ${WG_PORT}
 PrivateKey = ${SERVER_PRIVATE_KEY}
 SaveConfig = true
-
-# No iptables in PostUp/PostDown – firewall managed separately and persisted.
+PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT; iptables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WG_IFACE} -j MASQUERADE; ip6tables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT; ip6tables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT
+PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT; iptables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WG_IFACE} -j MASQUERADE; ip6tables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT; ip6tables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT
 EOF
-    chmod 600 "$WG_DIR/$WG_INTERFACE.conf"
-}
+chmod 600 "${WG_INTERFACE}.conf"
 
-apply_firewall_rules() {
-    log "Applying iptables firewall rules (drop-by-default)..."
+# Start & Enable WireGuard
+echo "[*] Starting WireGuard..."
+systemctl enable "wg-quick@${WG_INTERFACE}"
+systemctl start "wg-quick@${WG_INTERFACE}"
 
-    # Flush and reset
-    iptables -F
-    iptables -X
-    iptables -t nat -F
-    iptables -t nat -X
+# Firewall
+echo "[*] Applying firewall rules..."
+ufw allow "${WG_PORT}/udp"
+ufw --force enable
 
-    ip6tables -F
-    ip6tables -X
-    ip6tables -t nat -F 2>/dev/null || true
-    ip6tables -t nat -X 2>/dev/null || true
-
-    # Default policies
-    iptables -P INPUT DROP
-    iptables -P FORWARD DROP
-    iptables -P OUTPUT ACCEPT
-
-    ip6tables -P INPUT DROP
-    ip6tables -P FORWARD DROP
-    ip6tables -P OUTPUT ACCEPT
-
-    # Allow loopback
-    iptables  -A INPUT -i lo -j ACCEPT
-    ip6tables -A INPUT -i lo -j ACCEPT
-
-    # Allow established/related
-    iptables  -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-    # Allow ICMP (optional but sane)
-    if $ALLOW_PING; then
-        iptables  -A INPUT -p icmp -j ACCEPT
-        ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
-    fi
-
-    # Allow SSH
-    iptables  -A INPUT -p tcp --dport "$SSH_PORT" -m conntrack --ctstate NEW -j ACCEPT
-    ip6tables -A INPUT -p tcp --dport "$SSH_PORT" -m conntrack --ctstate NEW -j ACCEPT
-
-    # Allow WireGuard UDP
-    iptables  -A INPUT -p udp --dport "$WG_PORT" -m conntrack --ctstate NEW -j ACCEPT
-    ip6tables -A INPUT -p udp --dport "$WG_PORT" -m conntrack --ctstate NEW -j ACCEPT
-
-    # Forward wg0 <-> WAN (IPv4 + IPv6)
-    iptables -A FORWARD -i "$WG_INTERFACE" -o "$WAN_IF" -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
-    iptables -A FORWARD -i "$WAN_IF" -o "$WG_INTERFACE" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-    ip6tables -A FORWARD -i "$WG_INTERFACE" -o "$WAN_IF" -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
-    ip6tables -A FORWARD -i "$WAN_IF" -o "$WG_INTERFACE" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-    # NAT for IPv4 clients
-    iptables -t nat -A POSTROUTING -s "${SERVER_V4_CIDR%/*}/24" -o "$WAN_IF" -j MASQUERADE
-
-    # Persist rules
-    log "Saving iptables rules via iptables-persistent..."
-    netfilter-persistent save >/dev/null 2>&1 || {
-        iptables-save > /etc/iptables/rules.v4
-        ip6tables-save > /etc/iptables/rules.v6
-    }
-}
-
-enable_wireguard() {
-    log "Enabling and starting WireGuard..."
-    systemctl enable "wg-quick@${WG_INTERFACE}"
-    systemctl restart "wg-quick@${WG_INTERFACE}"
-}
-
-maybe_create_first_client() {
-    if $AUTO_MODE; then
-        return
-    fi
-
-    echo
-    read -rp "Create first client now? (y/N): " ans
-    [[ "$ans" =~ ^[Yy]$ ]] || return
-
-    read -rp "Client name (no spaces): " CLIENT_NAME
-    [[ -z "$CLIENT_NAME" ]] && die "Client name cannot be empty."
-
-    local CLIENT_IPv4="10.10.0.2/32"
-    local CLIENT_DIR="${CLIENTS_DIR}/${CLIENT_NAME}"
-    mkdir -p "$CLIENT_DIR"
-    umask 077
-
-    wg genkey | tee "${CLIENT_DIR}/private.key" | wg pubkey > "${CLIENT_DIR}/public.key"
-
-    local CLIENT_PRIV CLIENT_PUB
-    CLIENT_PRIV=$(<"${CLIENT_DIR}/private.key")
-    CLIENT_PUB=$(<"${CLIENT_DIR}/public.key")
-
-    # Append peer to server config
-    cat >> "$WG_DIR/$WG_INTERFACE.conf" <<EOF
-
-[Peer]
-# ${CLIENT_NAME}
-PublicKey = ${CLIENT_PUB}
-AllowedIPs = ${CLIENT_IPv4}
-EOF
-
-    # Generate client config
-    cat > "${CLIENT_DIR}/${CLIENT_NAME}.conf" <<EOF
-[Interface]
-PrivateKey = ${CLIENT_PRIV}
-Address = 10.10.0.2/32, fd86:ea04:1115::2/128
-DNS = ${DNS_SERVERS}
-
-[Peer]
-PublicKey = ${SERVER_PUBLIC_KEY}
-Endpoint = ${SERVER_PUBLIC_IP}:${WG_PORT}
-AllowedIPs = ${CLIENT_ALLOWED_IPS_V4}, ${CLIENT_ALLOWED_IPS_V6}
-PersistentKeepalive = 25
-EOF
-
-    log "Client config written to: ${CLIENT_DIR}/${CLIENT_NAME}.conf"
-
-    if command -v qrencode >/dev/null 2>&1; then
-        log "QR code for mobile (wg-quick / WireGuard app):"
-        qrencode -t ansiutf8 < "${CLIENT_DIR}/${CLIENT_NAME}.conf"
-    fi
-
-    log "Reloading WireGuard config with new peer..."
-    wg setconf "$WG_INTERFACE" <(wg-quick strip "$WG_INTERFACE")
-}
-
-# --------- MAIN ---------
-require_root
-maybe_install_figlet
-banner
-disable_ufw_if_present
-install_packages
-enable_ip_forwarding
-ensure_dirs
-detect_wan_interface
-get_public_ip
-generate_server_keys
-write_server_config
-apply_firewall_rules
-enable_wireguard
-maybe_create_first_client
-
-echo
-log "Aegis-VPN v1.3 setup complete."
-log "Public IP: ${SERVER_PUBLIC_IP}"
-log "Server config: ${WG_DIR}/${WG_INTERFACE}.conf"
-log "Client configs (if created): ${CLIENTS_DIR}"
+echo ""
+echo "[*] Aegis-VPN v3.0 setup complete!"
+echo "    Server Public IP  : ${SERVER_PUBLIC_IP}"
+echo "    Network interface : ${WG_IFACE}"
+echo "    Config file       : ${WG_DIR}/${WG_INTERFACE}.conf"
+echo "    Server Public Key : ${SERVER_PUBLIC_KEY}"
+echo ""
+echo "[*] Next step: add clients with 'sudo ./bin/aegis-vpn add'"
