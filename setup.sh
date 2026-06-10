@@ -49,27 +49,78 @@ ALLOW_PING=true
 AUTO_MODE=false
 [[ "${1:-}" == "--auto" ]] && AUTO_MODE=true
 
-# Auto-detect outgoing network interface (replaces hardcoded enX0)
+# Parse flags
+CUSTOM_IFACE=""
+CUSTOM_ENDPOINT=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --interface) shift; CUSTOM_IFACE="${1:-}" ;;
+        --endpoint)  shift; CUSTOM_ENDPOINT="${1:-}" ;;
+        --auto) ;;
+        *) ;;
+    esac
+    shift
+done
+
+# ── List network interfaces ──────────────────────────────
+list_interfaces() {
+    echo ""
+    echo "Available network interfaces:"
+    printf "  %-12s %-16s %s\n" "Interface" "IP Address" "Type"
+    printf "  %s\n" "$(printf '─%.0s' {1..50})"
+    local idx=0
+    while IFS= read -r line; do
+        local iface ip
+        iface=$(echo "$line" | awk '{print $2}' | tr -d ':')
+        ip=$(echo "$line" | awk '{print $4}' | cut -d/ -f1)
+        local type=""
+        if [[ "$iface" == "$WG_IFACE" ]]; then type="(default route)"; fi
+        printf "  %-12s %-16s %s\n" "$iface" "$ip" "$type"
+        idx=$((idx + 1))
+    done < <(ip -br addr show 2>/dev/null | grep -v '^lo ')
+    echo ""
+}
+
+# Auto-detect outgoing network interface
 WG_IFACE=$(ip route 2>/dev/null | awk '/^default/ {print $5; exit}')
-if [[ -z "$WG_IFACE" ]]; then
-    echo "[!] Could not auto-detect network interface."
+
+# Handle custom interface flag
+if [[ -n "$CUSTOM_IFACE" ]]; then
+    if ip link show "$CUSTOM_IFACE" &>/dev/null; then
+        WG_IFACE="$CUSTOM_IFACE"
+    else
+        echo "[!] Interface '${CUSTOM_IFACE}' not found."
+        CUSTOM_IFACE=""
+    fi
+fi
+
+if [[ -z "$WG_IFACE" ]] || [[ "$AUTO_MODE" != true && -z "$CUSTOM_IFACE" ]]; then
     if [[ "$AUTO_MODE" == true ]]; then
-        echo "[!] --auto mode requires a default route. Aborting."
+        echo "[!] Could not auto-detect network interface. Use --interface <name>."
+        echo "    Available interfaces:"
+        ip -br addr show 2>/dev/null | grep -v '^lo ' | awk '{print "    " $2}'
         exit 1
     fi
-    read -rp "Enter your network interface name (e.g. eth0): " WG_IFACE
+    list_interfaces
+    read -rp "[*] Enter network interface name (e.g. eth0) [${WG_IFACE:-eth0}]: " choice
+    WG_IFACE="${choice:-${WG_IFACE:-eth0}}"
 fi
 echo "[*] Using network interface: ${WG_IFACE}"
 
-# Get public IP
+# Get public IP (or custom endpoint)
 echo "[*] Detecting server public IP..."
-SERVER_PUBLIC_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
-if [[ -z "$SERVER_PUBLIC_IP" ]]; then
-    if [[ "$AUTO_MODE" == true ]]; then
-        echo "[!] Could not detect public IP in --auto mode. Proceeding without it."
-        SERVER_PUBLIC_IP="<your-server-ip>"
-    else
-        read -rp "[!] Could not detect public IP. Enter it manually: " SERVER_PUBLIC_IP
+if [[ -n "$CUSTOM_ENDPOINT" ]]; then
+    SERVER_PUBLIC_IP="$CUSTOM_ENDPOINT"
+    echo "[*] Using custom endpoint: ${SERVER_PUBLIC_IP}"
+else
+    SERVER_PUBLIC_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
+    if [[ -z "$SERVER_PUBLIC_IP" ]]; then
+        if [[ "$AUTO_MODE" == true ]]; then
+            echo "[!] Could not detect public IP in --auto mode. Proceeding without it."
+            SERVER_PUBLIC_IP="<your-server-ip>"
+        else
+            read -rp "[!] Could not detect public IP. Enter it manually: " SERVER_PUBLIC_IP
+        fi
     fi
 fi
 
@@ -88,6 +139,7 @@ fi
 
 # Generate server keys (skip if already exist)
 mkdir -p "$WG_DIR"
+echo "$SERVER_PUBLIC_IP" > "${WG_DIR}/endpoint"
 cd "$WG_DIR" || exit 1
 if [[ -f privatekey && -f publickey ]]; then
     echo "[*] Server keys already exist — reusing."

@@ -78,11 +78,16 @@ if [[ ! -f "${WG_DIR}/publickey" ]]; then
 fi
 SERVER_PUBLIC_KEY=$(< "${WG_DIR}/publickey")
 
-print_info "Detecting server public IP..."
-SERVER_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
-if [[ -z "$SERVER_IP" ]]; then
-    print_warn "Could not auto-detect public IP. Please enter it manually:"
-    read -rp "Server public IP: " SERVER_IP
+if [[ -f "${WG_DIR}/endpoint" ]]; then
+    SERVER_IP=$(< "${WG_DIR}/endpoint")
+    print_info "Using saved endpoint: ${SERVER_IP}"
+else
+    print_info "Detecting server public IP..."
+    SERVER_IP=$(curl -s --max-time 5 https://ipinfo.io/ip 2>/dev/null || true)
+    if [[ -z "$SERVER_IP" ]]; then
+        print_warn "Could not auto-detect public IP. Please enter it manually:"
+        read -rp "Server public IP: " SERVER_IP
+    fi
 fi
 
 # ── Allocate unique client IPs (race-safe) ───────────────
