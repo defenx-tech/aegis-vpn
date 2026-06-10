@@ -152,3 +152,5 @@ echo "   IPv6        : ${CLIENT_IPv6}"
 echo "   DNS         : ${CLIENT_DNS}"
 echo "   Tunnel mode : ${CLIENT_ALLOWED_IPS}"
 echo "   Config file : ${CLIENT_CONF}"
+
+send_telegram_alert "Aegis-VPN: client ${CLIENT_NAME} added at $(date '+%Y-%m-%d %H:%M:%S')"
