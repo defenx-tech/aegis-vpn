@@ -1,13 +1,13 @@
 # Aegis-VPN v3.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![CI](https://github.com/rabindra789/aegis-vpn/actions/workflows/ci.yml/badge.svg)](https://github.com/rabindra789/aegis-vpn/actions/workflows/ci.yml)
+[![CI](https://github.com/defenx-tech/aegis-vpn/actions/workflows/ci.yml/badge.svg)](https://github.com/defenx-tech/aegis-vpn/actions/workflows/ci.yml)
 [![Shell](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](../CONTRIBUTING.md)
 [![WireGuard](https://img.shields.io/badge/WireGuard-ready-brightgreen?logo=wireguard&logoColor=white)](https://www.wireguard.com/)
-[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/rabindra789/aegis-vpn/graphs/commit-activity)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/defenx-tech/aegis-vpn/graphs/commit-activity)
 
-![Aegis-VPN](https://github.com/rabindra789/aegis-vpn/blob/main/images/image.png)
+![Aegis-VPN](https://github.com/defenx-tech/aegis-vpn/blob/main/images/image.png)
 
 Aegis-VPN is a fully automated, self-hosted WireGuard VPN manager for Linux servers. It handles everything from server setup and client onboarding to key rotation, backups, and real-time monitoring — all from a single CLI with no external dependencies beyond WireGuard itself.
 
@@ -69,7 +69,7 @@ aegis-vpn/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/rabindra789/aegis-vpn.git
+git clone https://github.com/defenx-tech/aegis-vpn.git
 cd aegis-vpn
 ```
 
@@ -241,8 +241,8 @@ sudo ./cleanup.sh
 | [`clients/README.md`](../clients/README.md) | Client onboarding guide |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to contribute |
 
-![Architecture](https://github.com/rabindra789/aegis-vpn/blob/main/diagrams/architecture.png)
-![Networking](https://github.com/rabindra789/aegis-vpn/blob/main/diagrams/networking.png)
+![Architecture](https://github.com/defenx-tech/aegis-vpn/blob/main/diagrams/architecture.png)
+![Networking](https://github.com/defenx-tech/aegis-vpn/blob/main/diagrams/networking.png)
 
 ---
 
