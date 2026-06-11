@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './scripts'
+          severity: style
+
+  syntax-check:
+    name: Bash Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check bash syntax on scripts
+        run: |
+          for f in scripts/*.sh bin/aegis-vpn setup.sh cleanup.sh; do
+            [ -f "$f" ] && bash -n "$f" && echo "OK: $f" || { echo "FAIL: $f"; exit 1; }
+          done
+
+  validate-test:
+    name: Validation Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test lib.sh sourcing
+        run: |
+          # Test that lib.sh sources cleanly
+          bash -c 'source scripts/lib.sh; echo "lib.sh loaded OK"'
+      - name: Test validate.sh sourcing
+        run: |
+          bash -c 'source scripts/lib.sh; source scripts/log_hooks.sh; source scripts/validate.sh; echo "validate.sh loaded OK"'
+
+  test-suite:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run test suite
+        run: bash tests/test_lib.sh
