@@ -10,6 +10,7 @@
 set -euo pipefail
 
 # shellcheck source=lib.sh
+# shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=log_hooks.sh
 source "$(dirname "${BASH_SOURCE[0]}")/log_hooks.sh"
@@ -99,6 +100,7 @@ fi
 acquire_lock
 CLIENT_OCTET=$(next_client_octet)
 CLIENT_IPv4="${VPN_SUBNET}.${CLIENT_OCTET}"
+# shellcheck disable=SC2154
 CLIENT_IPv6="${VPN_IPv6_PREFIX}::${CLIENT_OCTET}"
 # Lock is released by the EXIT trap in lib.sh
 

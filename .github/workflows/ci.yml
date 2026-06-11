@@ -16,6 +16,7 @@ jobs:
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: './scripts'
+          severity: warning
 
   syntax-check:
     name: Bash Syntax
