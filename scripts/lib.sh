@@ -7,10 +7,12 @@
 #===========================================================
 
 # Version
+# shellcheck disable=SC2034
 AEGIS_VERSION="3.0.0"
 
 # Paths (derived from this file's location, so they work from any cwd)
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC2034
 SCRIPTS_DIR="$BASE_DIR/scripts"
 CLIENTS_DIR="$BASE_DIR/clients"
 LOG_DIR="$BASE_DIR/var/log/aegis-vpn"
@@ -21,16 +23,23 @@ IP_COUNTER_FILE="$VAR_DIR/next_ip.dat"
 # WireGuard
 WG_DIR="/etc/wireguard"
 WG_INTERFACE="wg0"
+# shellcheck disable=SC2034
 WG_PORT="51820"
 VPN_SUBNET="10.10.0"
 VPN_SUBNET_CIDR="10.10.0.0/24"
+# shellcheck disable=SC2034
 VPN_IPv6_PREFIX="fd86:ea04:1115"
 
 # Log files
+# shellcheck disable=SC2034
 CONNECTION_LOG="$LOG_DIR/connections.log"
+# shellcheck disable=SC2034
 ERROR_LOG="$LOG_DIR/errors.log"
+# shellcheck disable=SC2034
 AUDIT_LOG="$LOG_DIR/audit.log"
+# shellcheck disable=SC2034
 LOG_MAX_BYTES=10485760   # 10 MB
+# shellcheck disable=SC2034
 LOG_KEEP_ROTATIONS=3
 
 # ANSI colors
@@ -38,6 +47,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+# shellcheck disable=SC2034
 BOLD='\033[1m'
 RESET='\033[0m'
 

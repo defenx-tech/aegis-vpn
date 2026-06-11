@@ -129,7 +129,7 @@ list_clients() {
         fi
 
         printf "%-20s %-16s %-20s " "$name" "$ipv4" "${ipv6:-—}"
-        printf "${status_str} "
+        printf "%s " "$status_str"
         printf "%-20s\n" "$hs_str"
     done
 
