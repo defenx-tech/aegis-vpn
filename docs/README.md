@@ -1,7 +1,7 @@
 # Aegis-VPN v3.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-[![CI](https://github.com/rabindra789/aegis-vpn/actions/workflows/ci.yml/badge.svg)](https://github.com/rabindra789/aegis-vpn/actions/workflows/ci.yml)
+[![CI](https://github.com/defenx-tech/aegis-vpn/actions/workflows/ci.yml/badge.svg)](https://github.com/defenx-tech/aegis-vpn/actions/workflows/ci.yml)
 [![Shell](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](../CONTRIBUTING.md)
 [![WireGuard](https://img.shields.io/badge/WireGuard-ready-brightgreen?logo=wireguard&logoColor=white)](https://www.wireguard.com/)
